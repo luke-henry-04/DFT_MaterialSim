@@ -39,24 +39,26 @@ void Fields::InitMaterial(int w_, int h_, int l_, double cellSize_bohr, int atom
 	FFT_inv_plan_n = fftw_plan_dft_c2r_3d(w, h,l, reinterpret_cast<fftw_complex*>(FFT_out.data()), n_flat.data(), FFTW_ESTIMATE);
 
 	//orbital vectors and FFT plan for solving Kohn Sham
-	ifft_orbital	= std::vector<double>(n_flat.size(),0);
-	fft_orbital		= std::vector<std::complex<double>>(w*h*((l/2)+1), 0);
-	FFT_plan_KohnSham		= fftw_plan_dft_r2c_3d(w,h,l, ifft_orbital.data(), reinterpret_cast<fftw_complex*>(fft_orbital.data()), FFTW_ESTIMATE);
-	FFT_inv_plan_KohnSham	= fftw_plan_dft_c2r_3d(w,h,l,reinterpret_cast<fftw_complex*>(fft_orbital.data()), ifft_orbital.data(), FFTW_ESTIMATE);
+	ifft_orbital	 = std::vector<std::complex<double>>(w*h*l, 0);
+	fft_orbital		= std::vector<std::complex<double>>(w*h*l, 0);
+	
+	FFT_plan_KohnSham = fftw_plan_dft_3d(w, h, l, reinterpret_cast<fftw_complex*>(ifft_orbital.data()), reinterpret_cast<fftw_complex*>(fft_orbital.data()), FFTW_FORWARD, FFTW_ESTIMATE);
+	FFT_inv_plan_KohnSham = fftw_plan_dft_3d(w, h, l, reinterpret_cast<fftw_complex*>(fft_orbital.data()), reinterpret_cast<fftw_complex*>(ifft_orbital.data()), FFTW_BACKWARD, FFTW_ESTIMATE);
 
 	
 	//Create nuclei
-	nFreeElectrons = 0;
+	//nFreeElectrons = 0;
 	for (int i = 0; i < atoms;i++) {
 		
 		Nucleus nucl;
 
+		nucl.charge = charge;
 		nucl.nProtons = protons;
 		nucl.nFreeElec = nucl.nProtons;
 		nFreeElectrons += nucl.nFreeElec; //store num electrons in field, for now summing over each nuclei.
 		
-		nucl.pos_lattice[0] = ((double)(i % 5))* (((double)w) / 8.0) + 0.5 * w+0.2;
-		nucl.pos_lattice[1] = ((double)(i / 5)) * (((double)h) / 8.0) + 0.5 * h+0.2;
+		nucl.pos_lattice[0] =/* ((double)(i % 5)) * (((double)w) / 8.0)*/  ((double)(2*i-1))*(28.0*0.5) + 0.5 * w + 0.2;
+		nucl.pos_lattice[1] = ((double)(i / 5)) * (((double)h) / 8.0) + 0.5 * h + 0.2;
 		nucl.pos_lattice[2] = ((double)l) / 2.0+0.2;
 
 		//TODO, add angstroms when needed?
@@ -91,7 +93,7 @@ void Fields::InitExternalV() {
 					//V_ext[x][y][z] = std::exp(-r2 / (2.0 * 4 * 4));
 
 					//actual equation
-					V_ext[x][y][z] += ((double)Nuclei[atom].nProtons) / std::max(std::sqrt(dx * dx + dy * dy + dz * dz),0.00001);
+					V_ext[x][y][z] -= ((double)Nuclei[atom].nProtons) / std::max(std::sqrt(r2),0.00000001);
 
 				}
 			}

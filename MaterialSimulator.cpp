@@ -31,6 +31,15 @@ int main(int argc, char* argv[])
 
 	//temporary debug initializations
 	//eventually switch to input file parsing -> commandline filename -> GUI import file
+	
+	
+	/*fields.w = 50;
+	fields.h = 50;
+	fields.l = 50;
+	fields.cellSize = 0.05;
+	fields.InitAtom(1, 1, -(28 * 0.5), 0, 0);
+	fields.InitAtom(1, 1, (28 * 0.5), 0, 0);*/
+
 	if (argc == 7) {
 		fields.InitMaterial(
 			stoi(argv[1]),
@@ -41,12 +50,12 @@ int main(int argc, char* argv[])
 			stoi(argv[6]),
 			1
 		);
-	}else fields.InitMaterial(64,64,64,0.05,1,1,1);
+	}
+	else fields.InitMaterial(64, 64, 64, 0.05, 2, 1, 1);
 	
 	DFT::NumGridPoints = fields.w * fields.h * fields.l;
-	for (int i = 0;i < 20;i++) {
+	for (int i = 0;i < 1;i++) {
 		DFT::calculateV_s(fields);
-
 		DFT::calculateOrbitals(fields, fields.FFT_plan_n, fields.FFT_inv_plan_n);
 		DFT::calculateN(fields);
 	}
@@ -87,8 +96,8 @@ int main(int argc, char* argv[])
 
 	//DEBUGGING WINDOW -- NOT ACTUAL GUI - SWITCH TO QT EVENTUALLY
 		//Inner loop shows field values with sigmoid rescaling.
-	const int W = fields.w*4;
-	const int H = fields.h*4;
+	const int W = fields.w*10;
+	const int H = fields.h*10;
 	StartPixelWindow(W, H);
 	std::vector<uint32_t> pixels(W * H);
 
@@ -117,10 +126,12 @@ int main(int argc, char* argv[])
 			{
 				for (int x = 0; x < W; x++)
 				{
-					
+					//if (5000.0 * abs(fields.n[x / 4][y / 4][z]) >= 0xD3 && 5000.0 * abs(fields.n[x / 4][y / 4][z]) <= 0xD5) {
 					pixels[y * W + x] =
-						//(  (int) (0x0F * (abs(fields.V_hartree[y / 2][x / 2][z]/ fields.V_ext[y / 2][x / 2][z]) <15 ? abs(fields.V_hartree[y / 2][x / 2][z]) : 0)) % 0x100 );
-						(((int)(0xFF * abs(fields.n[x / 4][y / 4][z])) % 0xFF));
+							//(  (int) (0x0F * (abs(fields.V_hartree[y / 2][x / 2][z]/ fields.V_ext[y / 2][x / 2][z]) <15 ? abs(fields.V_hartree[y / 2][x / 2][z]) : 0)) % 0x100 );
+							(((int)(300.0 * abs(fields.n[x / 10][y / 10][z])) % 0xFF));
+					//}
+					//else pixels[y * W + x] = 0xFF;
 				}
 			}
 
@@ -128,7 +139,8 @@ int main(int argc, char* argv[])
 			UpdatePixelWindow(pixels.data());
 			ProcessPixelWindowEvents();
 			
-			_sleep(80);
+			_sleep(200);
+
 		}
 	}
 

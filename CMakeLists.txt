@@ -14,6 +14,7 @@ project ("MaterialSimulator")
 # Add source to this project's executable.
 find_package(FFTW3 REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(OpenMP REQUIRED)
 include_directories(C:/dev/spectra/include)
 
 
@@ -23,6 +24,10 @@ if(FFTW3_FOUND)
     target_link_libraries(MaterialSimulator PRIVATE FFTW3::fftw3)
     target_link_libraries(MaterialSimulator PRIVATE Eigen3::Eigen)
 endif() 
+
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(MaterialSimulator PRIVATE OpenMP::OpenMP_CXX)
+endif()
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET MaterialSimulator PROPERTY CXX_STANDARD 20)

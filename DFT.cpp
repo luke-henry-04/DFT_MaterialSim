@@ -2,18 +2,20 @@
 #include <iostream>
 
 double DFT::VWN_eps_c(double r_s) {
-	
+
 	//Vosko Wilk Nusair paper, with VWN5 constants
-	double atanQ_rb = std::atan(VWN_Q / (2.0 * r_s + VWN_b));
+	double x = sqrt(r_s);
+
+	double atanQ_rb = std::atan(VWN_Q / (2.0 * x + VWN_b));
 
 	//term 3
-	double eps_c = std::log((r_s - VWN_x0) * (r_s - VWN_x0) / VWN_X(r_s));
+	double eps_c = std::log((x - VWN_x0) * (x - VWN_x0) / VWN_X(x));
 	eps_c += atanQ_rb * (2.0 * (VWN_b + 2.0 * VWN_x0) / VWN_Q);
 	//term 3 coeff
 	eps_c *= -VWN_b * VWN_x0 / VWN_X_x0;
 
 	//add in term 1 and term 2
-	eps_c += std::log(r_s * r_s / VWN_X(r_s));
+	eps_c += std::log(x / VWN_X(x));
 	eps_c += (2.0 * VWN_b / VWN_Q) * atanQ_rb;
 
 	//whole expression coeff = (1/(2pi^2))
@@ -43,7 +45,7 @@ void DFT::calculateV_xc(std::vector<std::vector<std::vector<double>>>& n, std::v
 				}
 
 				//Start by setting V_xc(r) = V_x(r)
-				V_xc[x][y][z] = ex_coeff * pow(n[x][y][z], 1.0 / 3.0);
+				V_xc[x][y][z] =  ex_coeff * pow(n[x][y][z], 1.0 / 3.0);
 
 				//Wigner-Seitz radius for VWN correlation functional
 				double r_s = r_s_coeff * pow(1.0 / n[x][y][z], 1.0 / 3.0);
@@ -119,7 +121,7 @@ void DFT::calculateV_ht(fftw_plan& FFT_plan, fftw_plan& FFT_inv_plan, std::vecto
 				}
 
 				//solve poisson equation in frequency space -- ooh so clean :)
-				n_tilde = std::complex<double>(n_tilde.real() * -2.0 * tau / sqMagG, n_tilde.imag() * -2.0 * tau / sqMagG);
+				n_tilde = std::complex<double>(n_tilde.real() * 2.0 * tau / sqMagG, n_tilde.imag() * 2.0 * tau / sqMagG);
 
 
 
@@ -211,7 +213,7 @@ void DFT::Hamiltonian::perform_op(const Scalar* x_in, Scalar* y_out) const{
 	
 	//Grab fields from static var
 	Fields* fields = getFields();
-
+	//std::cout << fields->V_s[32][32][32] << "\n";
 
 	//okay you have everything you need to go forwards..
 
@@ -234,31 +236,43 @@ void DFT::Hamiltonian::perform_op(const Scalar* x_in, Scalar* y_out) const{
 
 	const double tau = 2.0 * std::numbers::pi;
 
-	std::cout << "len =" << fields->fft_orbital.size();
+	std::cout << "  len =" << fields->fft_orbital.size();
 
+	#pragma omp parallel for collapse(3)
 	for (int i_x = 0; i_x < Nx; i_x++)
 	{
 		for (int i_y = 0; i_y < Ny; i_y++)
 		{
-			for (int i_z = 0; i_z < Nz/2+1; i_z++)
+			
+			for (int i_z = 0; i_z < Nz; i_z++)
 			{
 				double Gx = tau / Lx * (double)((i_x <= (int)Nx / 2) ? i_x : (i_x - (int)Nx));
 				double Gy = tau / Ly * (double)((i_y <= (int)Ny/ 2) ? i_y : (i_y - (int)Ny));
-				double Gz = tau / Lz * (double)i_z;
+				double Gz = tau / Lz * (double)((i_z <= (int)Nz / 2) ? i_z : (i_z - (int)Nz));
 
 				double sqMagG = (Gx * Gx) + (Gy * Gy) + (Gz * Gz);
 				int idx = 
-					i_x * (Nz / 2 + 1) * Ny
-					+ i_y * (Nz / 2 + 1)
+					i_x * (Nz) * Ny
+					+ i_y * (Nz)
 					+ i_z;
 
+
+				double ecut = 30.0; // Hartree
+				if (0.5 * sqMagG > ecut) {
+					y_out[idx] = 0;
+					fields->fft_orbital[idx] = 0;
+					continue;
+				}
 				//this sets y = lacplacian(x)
 					//next step will add the result of (x*Vs) to y
 				y_out[idx] = x_in[idx] * 0.5 * sqMagG;
 				fields->fft_orbital[idx] = x_in[idx];
+
 			}
 		}
 	}
+
+
 
 	//N * Vs, component-wise in real space
 
@@ -267,13 +281,17 @@ void DFT::Hamiltonian::perform_op(const Scalar* x_in, Scalar* y_out) const{
 
 
 	//multiply Vs
-	int idx_ = 0;
+	
+	#pragma omp parallel for collapse(3)
 	for (int x = 0;x < Nx;x++) {
 		for (int y = 0;y < Ny;y++) {
 			for (int z = 0;z < Nz;z++) {
-
-				fields->ifft_orbital[idx_] *= fields->V_s[x][y][z];
-					idx_++;
+				int idx =
+					x * (Nz)*Ny
+					+ y * (Nz)
+					+z;
+				fields->ifft_orbital[idx] *= fields->V_s[x][y][z];
+					
 			}
 		}
 		
@@ -285,9 +303,36 @@ void DFT::Hamiltonian::perform_op(const Scalar* x_in, Scalar* y_out) const{
 
 	double norm = Nx*Ny*Nz;
 
+
 	//Add To laplacian term to get final y_out
-	for (int i = 0;i < Nx * Ny * (Nz/2+1);i++) {
+	#pragma omp parallel for
+	for (int i = 0;i < Nx * Ny * (Nz);i++) {
 		y_out[i] += fields->fft_orbital[i]/norm;
+	}
+
+	#pragma omp parallel for collapse(3)
+	for (int i_x = 0; i_x < Nx; i_x++)
+	{
+		for (int i_y = 0; i_y < Ny; i_y++)
+		{
+			for (int i_z = 0; i_z < Nz; i_z++)
+			{
+				double Gx = tau / Lx * (double)((i_x <= (int)Nx / 2) ? i_x : (i_x - (int)Nx));
+				double Gy = tau / Ly * (double)((i_y <= (int)Ny / 2) ? i_y : (i_y - (int)Ny));
+				double Gz = tau / Lz * (double)((i_z <= (int)Nz / 2) ? i_z : (i_z - (int)Nz));
+
+				double sqMagG = (Gx * Gx) + (Gy * Gy) + (Gz * Gz);
+				int idx =
+					i_x * (Nz)*Ny
+					+ i_y * (Nz)
+					+i_z;
+
+				double ecut = 30.0; // Hartree
+				if (0.5 * sqMagG > ecut) {
+					y_out[idx] = 0;
+				}
+			}
+		}
 	}
 
 }
@@ -303,16 +348,19 @@ void DFT::calculateOrbitals(Fields& fields, fftw_plan& FFTplan, fftw_plan& IFFTp
 	//sample code from docs:
 	DFT::Hamiltonian op;
 	op.setFields(&fields);
-	Spectra::HermEigsSolver<DFT::Hamiltonian> eigs(op, fields.nFreeElectrons, fields.nFreeElectrons*2);//need to figure out how many eigenvalues i need? each one is an electron, kinda?? mybe??
+	Spectra::HermEigsSolver<DFT::Hamiltonian> eigs(op, (fields.nFreeElectrons/2)+1, ((fields.nFreeElectrons)/2+1)*4);//need to figure out how many eigenvalues i need? each one is an electron, kinda?? mybe??
 	eigs.init();
 
 
 	//run eigensolver:
-	int nconv = eigs.compute(Spectra::SortRule::SmallestAlge, 100, 1e-4);
+	int nconv = eigs.compute(Spectra::SortRule::SmallestAlge, 100, 1e-4,Spectra::SortRule::SmallestAlge);
 	std::cout << nconv << " eigs \n";
 
 	Eigen::MatrixXcd evecs = eigs.eigenvectors();
 	//std::cout << "Eigenvectors:\n" << evecs << std::endl;
+	std::cout << "\n" << "EV1: " << eigs.eigenvalues()(0) << "\n";
+	std::cout << "\n" << "EV2: " << eigs.eigenvalues()(1) << "\n";
+	std::cout << "\n" << "ET: " << (eigs.eigenvalues()(0)+eigs.eigenvalues()(1)) << "\n";
 	
 	for (int orb = 0; orb < nconv;orb++) {
 		for (int idx = 0;idx < fields.orbitals[0].size(); idx++) {
@@ -326,15 +374,18 @@ void DFT::calculateOrbitals(Fields& fields, fftw_plan& FFTplan, fftw_plan& IFFTp
 
 void DFT::calculateN(Fields& fields) {
 	//TODO,
-	for (int orb = 0; orb < fields.nFreeElectrons; orb++) {
+	for (int elec = 0; elec < fields.nFreeElectrons; elec++) {
+		int orb = elec / 2;
 		fields.fft_orbital = fields.orbitals[orb];
 		fftw_execute(fields.FFT_inv_plan_KohnSham);
 
 		//normalize and rescale orbital so wave function integrates to 1 over physical volume
 		double norm = 0;
 		for (int i = 0;i < fields.ifft_orbital.size();i++) {
-			double mag = abs(fields.ifft_orbital[i]);
-			norm += mag * mag;
+			double real = fields.ifft_orbital[i].real();
+			double imag = fields.ifft_orbital[i].imag();
+			double mag = real * real + imag * imag;
+			norm += mag;
 		}
 		for (int i = 0;i < fields.ifft_orbital.size();i++) {
 			fields.ifft_orbital[i] /= sqrt(norm);
@@ -345,9 +396,12 @@ void DFT::calculateN(Fields& fields) {
 		for (int x = 0;x < fields.n.size();x++) {
 			for (int y = 0;y < fields.n[0].size();y++) {
 				for (int z = 0;z < fields.n[0][0].size();z++) {
-					if (orb==0) fields.n[x][y][z] *=0.8;
-					double mag = abs(fields.ifft_orbital[x * fields.n[0][0].size() * fields.n[0].size() + y * fields.n[0][0].size() + z]);
-					fields.n[x][y][z] += mag * mag * 0.05;
+					if (orb==0) fields.n[x][y][z] *=0.6;
+
+					double real = fields.ifft_orbital[x * fields.n[0][0].size() * fields.n[0].size() + y * fields.n[0][0].size() + z].real();
+					double imag = fields.ifft_orbital[x * fields.n[0][0].size() * fields.n[0].size() + y * fields.n[0][0].size() + z].imag();
+					double mag = real * real + imag * imag;
+					fields.n[x][y][z] += mag  * 0.4;
 				
 				}
 			}

@@ -35,9 +35,9 @@ public:
 
 	//Orbitals - complex valued fields over space (~1 per [valence] electron)
 		//A vector of complex valued grids, of length N (one per relevant electron, plus some for potential orbital jumping)
-	int nFreeElectrons;
+	int nFreeElectrons=0;
 	std::vector<std::vector< std::complex<double>>> orbitals;
-	std::vector<double> ifft_orbital;
+	std::vector<std::complex<double>> ifft_orbital;
 	std::vector< std::complex<double>> fft_orbital;
 
 
@@ -49,7 +49,7 @@ public:
 		int nFreeElec;
 		float charge;
 	};
-	std::vector<Nucleus> Nuclei;
+	std::vector<Nucleus> Nuclei = std::vector<Nucleus>();
 	//TODO: methods, .cpp file, potentially move nuclei to MatSim.cpp, init fields from them, init nuclei in MatSim??
 
 	//TODO:Constructors? just blank and init separate? Feed grid reference?
@@ -59,6 +59,23 @@ public:
 	void InitMaterial(std::string filename);
 	void InitMaterial(int w_, int h_, int l_, double cellSize_bohr, int atoms, int protons, double charge);
 	void InitExternalV();
+	void InitAtom(int protons, double charge, double x, double y, double z) {
+		Nucleus nucl;
+
+		nucl.charge = charge;
+		nucl.nProtons = protons;
+		nucl.nFreeElec = nucl.nProtons;
+		nFreeElectrons += nucl.nFreeElec; //store num electrons in field, for now summing over each nuclei.
+
+		nucl.pos_lattice[0] = x + 0.5*((double)w) + 0.2;
+		nucl.pos_lattice[1] = y + 0.5 * ((double)h) + 0.2;
+		nucl.pos_lattice[2] = z+((double)l) / 2.0 + 0.2;
+
+		//TODO, add angstroms when needed?
+		//TODO, add pseudopotential support (charge?)
+
+		Nuclei.push_back(nucl);
+	}
 
 	static void FlattenField(std::vector<std::vector<std::vector<double>>>& N, std::vector<double>& N_flat) {
 		//flatten n into a row-major order 1d array
