@@ -12,7 +12,12 @@ NEED LERP FOR N!!!!
 
 now that its "done" lmao, i need to just go through the whole program top to bottom. look for issues
 
-
+NOTES 10/7/26
+It "works" if you can call it that. Results look promising, but eigenvalues are off by large factors
+Check V_HT solver for missing factors, 
+Check/confirm units are in Hartree/Bohr and that those are compatible??
+Confirm orbital counting is correct?
+Energy cutoffs are by vibe right now, will want to rework entire system into plane wave basis, (tedious but not hard)
 */
 
 #include "MaterialSimulator.h"
@@ -40,6 +45,31 @@ int main(int argc, char* argv[])
 	fields.InitAtom(1, 1, -(28 * 0.5), 0, 0);
 	fields.InitAtom(1, 1, (28 * 0.5), 0, 0);*/
 
+	std::vector<std::vector<std::vector<double>>> ReferenceH2 = std::vector< std::vector< std::vector<double>>>(90, std::vector< std::vector<double>>(90,  std::vector<double>(90,0)));
+	std::vector<std::vector<std::vector<double>>> ResidualH2 = ReferenceH2;
+	std::ifstream file("../../../h2_lda_reference.txt");
+
+	// Always check if the file opened successfully
+	if (!file.is_open()) {
+		std::cerr << "Error: Could not open the file!" << std::endl;
+		return 1;
+	}
+	else std::cout << "Reference file opened!";
+
+	std::string line;
+	// Read line-by-line until the end of the file
+	
+	for (int x = 0; x < 90;x++){
+		for (int y = 0; y < 90;y++) {
+			for (int z = 0; z < 90;z++) {
+				std::getline(file, line);
+				double val = stod(line);
+				ReferenceH2[x][y][z] = val;
+			}
+		}
+	}
+
+
 	if (argc == 7) {
 		fields.InitMaterial(
 			stoi(argv[1]),
@@ -51,14 +81,25 @@ int main(int argc, char* argv[])
 			1
 		);
 	}
-	else fields.InitMaterial(64, 64, 64, 0.05, 2, 1, 1);
+	else fields.InitMaterial(90, 90, 90, 0.175, 2, 1, 1);
 	
-	DFT::NumGridPoints = fields.w * fields.h * fields.l;
+	DFT::NumGridPoints = fields.w * fields.h * (fields.l/2+1);
 	for (int i = 0;i < 1;i++) {
 		DFT::calculateV_s(fields);
 		DFT::calculateOrbitals(fields, fields.FFT_plan_n, fields.FFT_inv_plan_n);
 		DFT::calculateN(fields);
+		std::cout << "\niteration# " << i << "\n";
 	}
+
+
+	for (int x = 0; x < 90;x++) {
+		for (int y = 0; y < 90;y++) {
+			for (int z = 0; z < 90;z++) {
+				ResidualH2[x][y][z] = ReferenceH2[x][y][z] - fields.n[x][y][z];
+			}
+		}
+	}
+
 	//Start with initial guess for n(r) - DONE
 	
 	//then solve for V_s = V_ext + V_ht + V_xc - DONE
@@ -121,6 +162,7 @@ int main(int argc, char* argv[])
 	{
 		//z-layer loop
 		for (int z = 0;z < fields.l;z++) {
+			
 			//Pixel loop
 			for (int y = 0; y < H; y++)
 			{
@@ -129,7 +171,15 @@ int main(int argc, char* argv[])
 					//if (5000.0 * abs(fields.n[x / 4][y / 4][z]) >= 0xD3 && 5000.0 * abs(fields.n[x / 4][y / 4][z]) <= 0xD5) {
 					pixels[y * W + x] =
 							//(  (int) (0x0F * (abs(fields.V_hartree[y / 2][x / 2][z]/ fields.V_ext[y / 2][x / 2][z]) <15 ? abs(fields.V_hartree[y / 2][x / 2][z]) : 0)) % 0x100 );
-							(((int)(300.0 * abs(fields.n[x / 10][y / 10][z])) % 0xFF));
+							(((int)(000.0 * abs(ReferenceH2[x / 10][y / 10][z])) % 0xFF));
+
+					pixels[y * W + x] +=
+						//(  (int) (0x0F * (abs(fields.V_hartree[y / 2][x / 2][z]/ fields.V_ext[y / 2][x / 2][z]) <15 ? abs(fields.V_hartree[y / 2][x / 2][z]) : 0)) % 0x100 );
+						(((int)(000.0 * abs(fields.n[x / 10][y / 10][z])) % 0xFF))<<8;
+
+					pixels[y * W + x] +=
+						//(  (int) (0x0F * (abs(fields.V_hartree[y / 2][x / 2][z]/ fields.V_ext[y / 2][x / 2][z]) <15 ? abs(fields.V_hartree[y / 2][x / 2][z]) : 0)) % 0x100 );
+						(((int)(255.0 * abs(1.0/(1.0+exp( ResidualH2[x / 10][y / 10][z]/ ReferenceH2[x / 10][y / 10][z] )))) % 0xFF))<<16;
 					//}
 					//else pixels[y * W + x] = 0xFF;
 				}
@@ -139,7 +189,7 @@ int main(int argc, char* argv[])
 			UpdatePixelWindow(pixels.data());
 			ProcessPixelWindowEvents();
 			
-			_sleep(200);
+			_sleep(20);
 
 		}
 	}

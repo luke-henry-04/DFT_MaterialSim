@@ -31,7 +31,10 @@ public:
 		int cols() const { return DFT::NumGridPoints; }
 		// y_out = M * x_in
 		void perform_op(const Scalar* x_in, Scalar* y_out) const;
-		static void setFields(Fields* F) { fields = F; }
+		static void setFields(Fields* F) { 
+			fields = F;
+			NumGridPoints = fields->w * fields->h * (fields->l / 2 + 1);
+		}
 	private:
 		inline static Fields* fields;
 		static Fields* getFields() { return fields; }
@@ -57,7 +60,158 @@ private:
 	}
 	static double VWN_eps_c(double r_s);
 
+	/*
+	static void PrintHamiltonianStats(Fields* fields, std::vector<std::complex<double>> x_in)  {
+		//TODO
+		//needs to preform laplaican and multiply Vs into input vector (arbitrary entire flattened grid)
+			//this being in frequency space, means i take the inverse fft to real space to multiply vs, then fft back and add to laplacian
 
+		//Grab fields from static var
+		
+		//std::cout << fields->V_s[32][32][32] << "\n";
+
+		//okay you have everything you need to go forwards..
+
+		//x_in is the entire orbital field, flattened as with FFTW format 
+		// (but is this time in frequency space, symetric along z, so half as many z idxs)
+		//y_out is flattened result vector
+		// (this is same size as x_in [q.v 'operator'], so also is in frequency space.
+		std::vector<std::complex<double>> y_out = std::vector<std::complex<double>>(x_in.size());
+
+
+		//laplacian 
+		//Calculate Lx Ly Lz = bohr volume of whole grid
+		int Nx = fields->V_s.size();
+		int Ny = fields->V_s[0].size();
+		int Nz = fields->V_s[0][0].size();
+
+		double Lx = ((double)Nx) * fields->cellSize;
+		double Ly = ((double)Ny) * fields->cellSize;
+		double Lz = ((double)Nz) * fields->cellSize;
+
+		const double tau = 2.0 * std::numbers::pi;
+
+		std::cout << "  len =" << fields->fft_orbital.size();
+		std::complex<double> Kinetic_DotProduct = 0.0;
+		#pragma omp parallel for collapse(3)
+		for (int i_x = 0; i_x < Nx; i_x++)
+		{
+			for (int i_y = 0; i_y < Ny; i_y++)
+			{
+
+				for (int i_z = 0; i_z < Nz/2+1; i_z++)
+				{
+					double Gx = tau / Lx * (double)((i_x <= (int)Nx / 2) ? i_x : (i_x - (int)Nx));
+					double Gy = tau / Ly * (double)((i_y <= (int)Ny / 2) ? i_y : (i_y - (int)Ny));
+					double Gz = tau / Lz * (double)(i_z);
+
+					double sqMagG = (Gx * Gx) + (Gy * Gy) + (Gz * Gz);
+					int idx =
+						i_x * (Nz/2+1)*Ny
+						+ i_y * (Nz/2+1)
+						+i_z;
+
+
+					double ecut = 30.0; // Hartree
+					if (0.5 * sqMagG > ecut) {
+						y_out[idx] = 0;
+						fields->fft_orbital[idx] = 0;
+						continue;
+					}
+					//this sets y = lacplacian(x)
+						//next step will add the result of (x*Vs) to y
+					y_out[idx] = (x_in[idx] * 0.5 * sqMagG) * x_in[idx];
+					fields->fft_orbital[idx] = x_in[idx];
+					Kinetic_DotProduct += y_out[idx];
+					
+				}
+			}
+		}
+		std::cout << "Kinetic: " << Kinetic_DotProduct << "\n";
+
+
+		//N * Vs, component-wise in real space
+
+		//step 1, ifft x to real space.
+		fftw_execute(fields->FFT_inv_plan_KohnSham); //results in fields->ifft_orbital[] (real valued full)
+		
+		double orbitalnorm = 0.0;
+		for (int i = 0;i < fields->ifft_orbital.size();i++) {
+			orbitalnorm += fields->ifft_orbital[i].real() * fields->ifft_orbital[i].real() + fields->ifft_orbital[i].imag() * fields->ifft_orbital[i].imag();
+
+		}
+		for (int i = 0;i < x_in.size();i++) {
+			fields->ifft_orbital[i] /= sqrt(orbitalnorm);
+			fields->ifft_orbital[i] /= sqrt(fields->cellSize * fields->cellSize * fields->cellSize);
+		}
+
+		//multiply Vs
+		std::complex<double> V_ext_contrib = 0.0;
+		std::complex<double> V_ht_contrib = 0.0;
+		std::complex<double> V_xc_contrib = 0.0;
+		#pragma omp parallel for collapse(3)
+		for (int x = 0;x < Nx;x++) {
+			for (int y = 0;y < Ny;y++) {
+				for (int z = 0;z < Nz;z++) {
+					int idx =
+						x * (Nz)*Ny
+						+ y * (Nz)
+						+z;
+					y_out[idx] = fields->ifft_orbital[idx] * fields->V_ext[x][y][z];
+					V_ext_contrib += y_out[idx] * fields->ifft_orbital[idx]* fields->cellSize * fields->cellSize * fields->cellSize;
+
+					y_out[idx] = fields->ifft_orbital[idx] * fields->V_hartree[x][y][z];
+					V_ht_contrib += y_out[idx] * fields->ifft_orbital[idx]* fields->cellSize * fields->cellSize * fields->cellSize;
+
+					y_out[idx] = fields->ifft_orbital [idx] * fields->V_xc[x][y][z];
+					V_xc_contrib += y_out[idx] * fields->ifft_orbital[idx]* fields->cellSize * fields->cellSize * fields->cellSize;
+				}
+			}
+
+		}
+		std::cout << "Vext: " << V_ext_contrib << "\n";
+		std::cout << "Vht: " << V_ht_contrib << "\n";
+		std::cout << "Vxc: " << V_xc_contrib << "\n";
+		//fft back to FreqSpace
+		fftw_execute(fields->FFT_plan_KohnSham);
+
+
+		double norm = Nx * Ny * Nz;
+
+
+		//Add To laplacian term to get final y_out
+		#pragma omp parallel for
+		for (int i = 0;i < Nx * Ny * (Nz);i++) {
+			y_out[i] += fields->fft_orbital[i] / norm;
+		}
+
+		#pragma omp parallel for collapse(3)
+		for (int i_x = 0; i_x < Nx; i_x++)
+		{
+			for (int i_y = 0; i_y < Ny; i_y++)
+			{
+				for (int i_z = 0; i_z < Nz; i_z++)
+				{
+					double Gx = tau / Lx * (double)((i_x <= (int)Nx / 2) ? i_x : (i_x - (int)Nx));
+					double Gy = tau / Ly * (double)((i_y <= (int)Ny / 2) ? i_y : (i_y - (int)Ny));
+					double Gz = tau / Lz * (double)((i_z <= (int)Nz / 2) ? i_z : (i_z - (int)Nz));
+
+					double sqMagG = (Gx * Gx) + (Gy * Gy) + (Gz * Gz);
+					int idx =
+						i_x * (Nz)*Ny
+						+ i_y * (Nz)
+						+i_z;
+
+					double ecut = 30.0; // Hartree
+					if (0.5 * sqMagG > ecut) {
+						y_out[idx] = 0;
+					}
+				}
+			}
+		}
+
+	}
+	*/
 	
 	
 };

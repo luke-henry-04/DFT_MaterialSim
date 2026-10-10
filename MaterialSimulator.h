@@ -4,6 +4,8 @@
 #pragma once
 
 #include <iostream>
+#include <fstream>
+
  
 // TODO: Reference additional headers your program requires here.
 #include "Fields.h"

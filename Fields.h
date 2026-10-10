@@ -37,7 +37,7 @@ public:
 		//A vector of complex valued grids, of length N (one per relevant electron, plus some for potential orbital jumping)
 	int nFreeElectrons=0;
 	std::vector<std::vector< std::complex<double>>> orbitals;
-	std::vector<std::complex<double>> ifft_orbital;
+	std::vector<double> ifft_orbital;
 	std::vector< std::complex<double>> fft_orbital;
 
 
